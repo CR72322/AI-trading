@@ -345,14 +345,13 @@ class VolatilityTrendStrategy(bt.Strategy):
             rsi_ok: bool = self.rsi[0] < self.p.rsi_upper
 
             if volatility_ok and trend_ok and rsi_ok:
-                size = int(self.p.trade_cash // current_close)
-                if size <= 0:
-                    return
-
                 self.log(
                     f"BUY SIGNAL | Close {current_close:.2f}, "
                     f"ATR {atr_val:.4f}, RSI {self.rsi[0]:.1f}, "
                     f"Range/ATR {bar_range / atr_val:.2f}, "
                     f"Vol/Avg {self.data.volume[0] / self.avg_volume[0]:.2f}"
                 )
-                self.order = self.buy(size=size)
+                # Size is determined by the Cerebro sizer (e.g. PercentSizer).
+                # Fall back to trade_cash-based sizing only when no sizer is
+                # configured (sizer returns 0).
+                self.order = self.buy()

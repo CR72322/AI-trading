@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Union
 
@@ -37,16 +38,28 @@ def load_or_download_soxl_5m_data(
         df = pd.DataFrame()
 
     if df.empty:
-        df = yf.download(
-            tickers="SOXL",
-            period="60d",
-            interval="5m",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            print(f"  Downloading SOXL 5m data (attempt {attempt}/{max_retries}) …")
+            df = yf.download(
+                tickers="SOXL",
+                period="60d",
+                interval="5m",
+                auto_adjust=False,
+                progress=False,
+                threads=False,
+            )
+            if not df.empty:
+                break
+            if attempt < max_retries:
+                wait = 2 ** attempt  # 2, 4, 8, 16, 32 seconds
+                print(f"  Rate-limited — retrying in {wait}s …")
+                time.sleep(wait)
         if df.empty:
-            raise ValueError("Failed to download SOXL 5-minute data from yfinance.")
+            raise ValueError(
+                "Failed to download SOXL 5-minute data after "
+                f"{max_retries} attempts. Try again later."
+            )
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
