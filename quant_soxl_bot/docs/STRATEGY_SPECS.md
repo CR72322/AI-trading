@@ -8,9 +8,9 @@ A high-frequency/intraday trading bot designed for 3x Leveraged ETFs (specifical
 ## 2. Technical Architecture
 - **Language:** Python 3.10+
 - **Backtesting Engine:** `Backtrader`
-- **Live Execution:** `ib_insync` (Interactive Brokers)
-- **Data Source:** `yfinance` (Historical), IBKR (Real-time Tick/5s Bar)
-- **Timeframe:** 1-Minute / 5-Minute Bars
+- **Live/Paper Execution:** `Alpaca` (Paper Trading Environment) - **CHANGED**
+- **Data Source:** `Alpaca` (IEX Data via `alpaca-py` SDK) - **CHANGED**
+- **Timeframe:** 5-Minute Bars (Intraday)
 
 ## 3. Strategy Logic (The "Alpha")
 
@@ -56,6 +56,6 @@ The exit logic is hierarchical. Check in this order:
     - `self.order`: Current pending order object.
 
 ## 5. Development Roadmap
-1.  **Phase 1 (Current):** Implement `Backtrader` strategy with `yfinance` data. Validate logic on historical data (2022 bear market & 2023 bull market).
+1.  **Phase 1 (Current):** Implement `Backtrader` strategy using **Alpaca Historical Data**. Validate logic on recent IEX data.
 2.  **Phase 2:** Implement logic visualization (matplotlib) to debug entry/exit points.
-3.  **Phase 3:** Build `ib_insync` connector for paper trading.
+3.  **Phase 3:** Build `Alpaca` Paper Trading connector for real-time forward testing.
