@@ -31,7 +31,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.strategies.volatility_trend import VolatilityTrendStrategy
-from src.utils.data_loader import load_or_download_soxl_5m_data
+from src.utils.alpaca_loader import download_alpaca_data
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -186,9 +186,9 @@ def main() -> None:
     # 1. Cerebro ----------------------------------------------------------
     cerebro = bt.Cerebro()
 
-    # 2. Data -------------------------------------------------------------
-    print("Loading SOXL 5-min data …")
-    df = load_or_download_soxl_5m_data()
+    # 2. Data — fetch from Alpaca (cached to CSV after first download) ----
+    print("Loading SOXL 5-min data via Alpaca …")
+    df = download_alpaca_data("SOXL", timeframe_minutes=5, days=60)
     print(f"  Rows loaded: {len(df)}  |  "
           f"Range: {df.index.min()} → {df.index.max()}")
 
