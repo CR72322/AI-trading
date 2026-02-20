@@ -2,3 +2,16 @@
 .env
 .env.*
 !.env.example
+
+# Python 虚拟环境 (防止 Git 上传 1000+ 个无用文件)
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# 交易数据和日志 (防止撑爆 Cursor 的 AI 大脑)
+*.csv
+*.xlsx
+*.log
+*.db
