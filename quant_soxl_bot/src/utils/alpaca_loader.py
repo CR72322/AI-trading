@@ -10,7 +10,8 @@ The module reads Alpaca credentials from environment variables
 Usage
 -----
     from src.utils.alpaca_loader import download_alpaca_data
-    df = download_alpaca_data("SOXL", timeframe_minutes=5, days=60)
+    df = download_alpaca_data("SOXL", timeframe_minutes=15, days=60)
+    # 15m data cached as data/raw/SOXL_Alpaca_15m.csv
 """
 
 from __future__ import annotations
@@ -68,7 +69,7 @@ def _get_alpaca_client() -> StockHistoricalDataClient:
 def download_alpaca_data(
     symbol: str = "SOXL",
     *,
-    timeframe_minutes: int = 5,
+    timeframe_minutes: int = 15,
     days: int = 60,
     cache: bool = True,
 ) -> pd.DataFrame:
@@ -79,17 +80,17 @@ def download_alpaca_data(
     symbol : str
         Ticker symbol to fetch (default ``"SOXL"``).
     timeframe_minutes : int
-        Bar aggregation in minutes (default ``5``).
+        Bar aggregation in minutes (default ``15``).
     days : int
         How many calendar days of history to request (default ``60``).
     cache : bool
-        If True, save to / read from ``data/raw/<SYMBOL>_<TF>m_<DAYS>d.csv``
-        to avoid redundant API calls.
+        If True, save to / read from ``data/raw/<SYMBOL>_Alpaca_<TF>m.csv``
+        to avoid redundant API calls (e.g. ``SOXL_Alpaca_15m.csv``).
 
     Returns
     -------
     pd.DataFrame
-        Index  = ``Datetime`` (tz-naive, US/Eastern wall-clock time)
+        Index  = ``Datetime`` (tz-naive)
         Columns = ``Open, High, Low, Close, Volume``
 
     Raises
@@ -100,11 +101,11 @@ def download_alpaca_data(
         If Alpaca credentials are missing.
     """
     # ------------------------------------------------------------------
-    # 1. CSV cache path
+    # 1. CSV cache path (Exp-006: 15m default, SOXL_Alpaca_15m.csv naming)
     # ------------------------------------------------------------------
     raw_dir = _PROJECT_ROOT / "data" / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    cache_csv = raw_dir / f"{symbol}_{timeframe_minutes}m_{days}d.csv"
+    cache_csv = raw_dir / f"{symbol}_Alpaca_{timeframe_minutes}m.csv"
 
     # ------------------------------------------------------------------
     # 2. Try reading from cache first

@@ -120,8 +120,8 @@ def _save_backtest_chart(
     # Panel 3: RSI
     ax_rsi = axes[2]
     ax_rsi.plot(dt_index, rsi_padded, linewidth=0.7, color="purple")
-    ax_rsi.axhline(strat.p.rsi_upper, color="red", linestyle="--", linewidth=0.6,
-                   label=f"RSI Upper ({strat.p.rsi_upper})")
+    ax_rsi.axhline(strat.p.rsi_ceiling, color="red", linestyle="--", linewidth=0.6,
+                   label=f"RSI Ceiling ({strat.p.rsi_ceiling})")
     ax_rsi.axhline(30, color="green", linestyle="--", linewidth=0.6, label="RSI 30")
     ax_rsi.set_ylabel("RSI")
     ax_rsi.set_ylim(0, 100)

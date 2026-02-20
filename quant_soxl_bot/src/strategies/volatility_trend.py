@@ -1,11 +1,11 @@
 """
 VolatilityTrendStrategy
 =======================
-Intraday volatility-expansion strategy for SOXL (3x Leveraged ETF).
+Swing/volatility-expansion strategy for SOXL (3x Leveraged ETF).
 
 Design reference: docs/STRATEGY_SPECS.md
 - Enter on volatility expansion + trend confirmation.
-- Exit via hierarchical stop system: Hard Stop → Trailing Stop → EOD Close.
+- Exit via Hard Stop → Trailing Stop (no EOD forced close — positions may run overnight).
 - Circuit breakers for daily drawdown and consecutive losses.
 """
 
@@ -20,46 +20,47 @@ import backtrader as bt
 class VolatilityTrendStrategy(bt.Strategy):
     """Intraday volatility-trend strategy for SOXL.
 
+    All tuneable numbers are exposed as ``params`` so that Backtrader's
+    built-in ``cerebro.optstrategy()`` can sweep them automatically.
+
     Parameters
     ----------
     atr_period : int
-        Look-back period for ATR indicator.
-    atr_multiplier : float
-        Multiplier applied to ATR for the trailing stop distance.
-    sma_period : int
-        Look-back period for the Simple Moving Average trend filter.
+        Look-back window for ATR.
+    ema_period : int
+        Look-back window for the EMA trend filter.
+    adx_period : int
+        Look-back window for the ADX trend-strength indicator.
+    adx_threshold : float
+        Minimum ADX to confirm a trending market before entry.
     rsi_period : int
-        Look-back period for RSI.
-    rsi_upper : float
-        RSI threshold — no entry when RSI >= this value.
+        Look-back window for RSI.
+    rsi_ceiling : float
+        Max RSI at *signal bar* — no entry when RSI >= this value.
+    rsi_confirm_upper : float
+        Max RSI at *confirmation bar* — rejects overbought confirmations.
     vol_expansion : float
         Bar-range / ATR ratio that qualifies as volatility expansion.
     vol_multiplier : float
         Volume / AvgVolume ratio that qualifies as volume spike.
-    adx_period : int
-        Look-back period for the ADX trend-strength indicator.
-    adx_threshold : float
-        Minimum ADX value required to confirm a trending market before entry.
-    ema_period : int
-        Look-back period for the EMA trend filter (replaces SMA for entry).
-    initial_stop_atr_dist : float
-        ATR multiplier for the initial hard stop (entry_price - dist * ATR).
+    sma_period : int
+        SMA period used for average-volume baseline.
+    stop_loss_atr_dist : float
+        ATR multiplier for the initial hard stop distance.
+    enable_break_even : bool
+        Whether the break-even stop mechanism is active.
+    break_even_atr_dist : float
+        ATR multiplier for the break-even profit threshold.
+    trailing_stop_atr_dist : float
+        ATR multiplier for the trailing stop distance from highest high.
+    max_stop_loss_pct : float
+        Absolute cap on hard stop distance as a decimal (0.03 = 3 %).
     trade_cash : float
         Fixed dollar amount allocated per trade.
-    market_open_hour : int
-        Market open hour (ET / data timezone).
-    market_open_minute : int
-        Market open minute.
-    entry_blackout_minutes : int
-        Minutes after open during which new entries are blocked.
-    eod_close_hour : int
-        Hour at which all positions are force-closed (ET).
-    eod_close_minute : int
-        Minute at which all positions are force-closed.
-    last_entry_hour : int
-        Hour after which no new entries are allowed.
-    last_entry_minute : int
-        Minute after which no new entries are allowed.
+    entry_start_hour / entry_start_minute : int
+        Earliest time (ET) at which new entries are allowed (default 09:45).
+    entry_end_hour / entry_end_minute : int
+        Latest time (ET) at which new entries are allowed (default 15:30).
     daily_loss_limit : float
         Maximum daily dollar loss before circuit breaker halts trading.
     max_consec_losses : int
@@ -67,41 +68,39 @@ class VolatilityTrendStrategy(bt.Strategy):
     cooldown_minutes : int
         Minutes to pause after hitting consecutive loss limit.
     exit_cooldown_bars : int
-        Minimum number of bars to wait after an exit before re-entering.
+        Minimum bars to wait after an exit before re-entering.
     """
 
     params: dict = dict(
         # --- Indicators ---
         atr_period=14,
-        atr_multiplier=3.5,       # ← was 2.5; widened to ride larger swings
-        sma_period=20,
-        rsi_period=14,
-        rsi_upper=70.0,
-        vol_expansion=1.5,
-        vol_multiplier=2.0,
+        ema_period=50,
         adx_period=14,
         adx_threshold=25.0,
-        ema_period=50,            # ← NEW: EMA trend filter (replaces SMA for entry)
-        # --- Risk ---
-        initial_stop_atr_dist=2.0,  # ATR-based initial stop
-        max_stop_pct=3.0,          # ← NEW: cap max stop distance at 3% of entry price
-        breakeven_atr_mult=1.0,    # ← NEW: move stop to break-even after 1×ATR profit
-        rsi_confirm_upper=75.0,    # ← NEW: RSI ceiling at confirmation bar
+        rsi_period=14,
+        rsi_ceiling=70.0,
+        rsi_confirm_upper=75.0,
+        vol_expansion=1.5,
+        vol_multiplier=2.0,
+        sma_period=20,
+        # --- Risk / Stops ---
+        stop_loss_atr_dist=2.0,
+        enable_break_even=True,
+        break_even_atr_dist=1.0,
+        trailing_stop_atr_dist=3.5,
+        max_stop_loss_pct=0.03,
         trade_cash=10_000.0,
         # --- Time windows (ET) ---
-        market_open_hour=9,
-        market_open_minute=30,
-        entry_blackout_minutes=15,
-        eod_close_hour=15,
-        eod_close_minute=55,
-        last_entry_hour=15,
-        last_entry_minute=30,
+        entry_start_hour=9,
+        entry_start_minute=45,
+        entry_end_hour=15,
+        entry_end_minute=30,
         # --- Circuit breakers ---
         daily_loss_limit=500.0,
         max_consec_losses=3,
         cooldown_minutes=30,
         # --- Trade cooldown ---
-        exit_cooldown_bars=6,     # ← NEW: min bars to wait after exit (6×5m = 30 min)
+        exit_cooldown_bars=6,
     )
 
     # ------------------------------------------------------------------
@@ -186,10 +185,8 @@ class VolatilityTrendStrategy(bt.Strategy):
             if order.isbuy():
                 self.entry_price = order.executed.price
                 self.entry_atr = self.atr[0]
-                # ATR dynamic hard stop with max-% cap:
-                #   stop_dist = min(ATR * multiplier, price * max_stop_pct%)
-                atr_dist = self.p.initial_stop_atr_dist * self.entry_atr
-                pct_cap = self.entry_price * (self.p.max_stop_pct / 100.0)
+                atr_dist = self.p.stop_loss_atr_dist * self.entry_atr
+                pct_cap = self.entry_price * self.p.max_stop_loss_pct
                 stop_dist = min(atr_dist, pct_cap)
                 self.hard_stop_price = self.entry_price - stop_dist
                 self.highest_price = order.executed.price
@@ -266,28 +263,16 @@ class VolatilityTrendStrategy(bt.Strategy):
             self.cooldown_until = None
 
     def _in_entry_window(self) -> bool:
-        """Return True if the current bar is inside the allowed entry window.
+        """Return True if the current bar falls within the allowed entry window.
 
-        Blocked periods (per spec §3.2 rule 4):
-        - First 15 min after open  (09:30 – 09:45)
-        - Last 30 min before close (15:30 – 16:00)
+        Window: [entry_start_hour:entry_start_minute, entry_end_hour:entry_end_minute)
+        Default 09:45–15:30 ET — avoids the first 15 min open auction and
+        the last 30 min before EOD forced close.
         """
         bar_time = self._bar_dt().time()
-        earliest = (
-            dt.datetime.combine(
-                dt.date.today(),
-                dt.time(self.p.market_open_hour, self.p.market_open_minute),
-            )
-            + dt.timedelta(minutes=self.p.entry_blackout_minutes)
-        ).time()
-        latest = dt.time(self.p.last_entry_hour, self.p.last_entry_minute)
-        return earliest <= bar_time < latest
-
-    def _is_eod_close_time(self) -> bool:
-        """Return True if the current bar is at or past the EOD close time."""
-        bar_time = self._bar_dt().time()
-        eod_time = dt.time(self.p.eod_close_hour, self.p.eod_close_minute)
-        return bar_time >= eod_time
+        start = dt.time(self.p.entry_start_hour, self.p.entry_start_minute)
+        end = dt.time(self.p.entry_end_hour, self.p.entry_end_minute)
+        return start <= bar_time < end
 
     # ------------------------------------------------------------------
     # Helpers — circuit breakers
@@ -342,18 +327,19 @@ class VolatilityTrendStrategy(bt.Strategy):
         # A) We ARE in a position → check exits (hierarchical order)
         # ==============================================================
         if self.position:
-            # --- 0. Break-Even Trigger: lock in entry when profit > 1×ATR ---
+            # --- 0. Break-Even Trigger (optional) ---
             if (
-                not self.breakeven_triggered
+                self.p.enable_break_even
+                and not self.breakeven_triggered
                 and (self.data.high[0] - self.entry_price)
-                > self.p.breakeven_atr_mult * self.entry_atr
+                > self.p.break_even_atr_dist * self.entry_atr
             ):
-                be_price = self.entry_price * 1.001  # tiny buffer for commissions
+                be_price = self.entry_price * 1.001
                 if be_price > self.hard_stop_price:
                     self.hard_stop_price = be_price
                     self.breakeven_triggered = True
                     self.log(
-                        f"BREAK-EVEN | Profit > {self.p.breakeven_atr_mult}×ATR, "
+                        f"BREAK-EVEN | Profit > {self.p.break_even_atr_dist}×ATR, "
                         f"stop raised to {self.hard_stop_price:.2f}"
                     )
 
@@ -371,7 +357,7 @@ class VolatilityTrendStrategy(bt.Strategy):
                 self.highest_price = current_close
 
             atr_val: float = self.atr[0]
-            new_trail = self.highest_price - self.p.atr_multiplier * atr_val
+            new_trail = self.highest_price - self.p.trailing_stop_atr_dist * atr_val
             if new_trail > self.trailing_stop_level:
                 self.trailing_stop_level = new_trail
 
@@ -380,12 +366,6 @@ class VolatilityTrendStrategy(bt.Strategy):
                     f"TRAILING STOP triggered | Close {current_close:.2f} "
                     f"< Trail {self.trailing_stop_level:.2f}"
                 )
-                self.order = self.close()
-                return
-
-            # --- 3. End-of-Day forced close (spec §3.3.3) ---
-            if self._is_eod_close_time():
-                self.log("EOD CLOSE | Forcing position close before market end.")
                 self.order = self.close()
                 return
 
@@ -440,7 +420,7 @@ class VolatilityTrendStrategy(bt.Strategy):
             volatility_ok: bool = vol_expansion or vol_spike
 
             trend_ok: bool = current_close > self.ema50[0]   # ← EMA(50) replaces SMA(20)
-            rsi_ok: bool = self.rsi[0] < self.p.rsi_upper
+            rsi_ok: bool = self.rsi[0] < self.p.rsi_ceiling
             adx_ok: bool = self.adx[0] > self.p.adx_threshold
 
             if volatility_ok and trend_ok and rsi_ok and adx_ok:

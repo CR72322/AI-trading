@@ -4,6 +4,51 @@
 
 ---
 
+## Experiment 005 — Break-Even 开关 + 时间滤网参数化
+
+| Field | Detail |
+|-------|--------|
+| **Date** | 2026-02-16 |
+| **File** | `src/strategies/volatility_trend.py` |
+| **Backtest Period** | 2025-12-19 → 2026-02-13 (Alpaca IEX 5m) |
+
+### Hypothesis
+
+Experiment 004 的网格寻优（27 组合）发现：
+- **保本机制触发过早**（`break_even_atr_dist=1.0`），止损被拉升至保本位后被日内正常波动扫出，无法捕捉主升浪。
+- TrailATR 对结果几乎无影响 → 多数退出走的是硬止损/保本，移动止盈未被触发。
+- 需要能在优化时**彻底关闭保本**以评估其实际价值。
+
+同时旧的时间窗口由 `market_open_hour` + `entry_blackout_minutes` + `last_entry_hour/minute` 三个冗余参数组合计算，不直观且不便于在 `optstrategy` 中调节。
+
+### Changes
+
+1. **`enable_break_even` 开关**
+   - 新增布尔参数 `enable_break_even=True`。
+   - `next()` 中保本逻辑前置 `self.p.enable_break_even` 判断。
+   - 优化器可传入 `enable_break_even=[True, False]` 对比开关效果。
+
+2. **时间滤网参数化**
+   - 移除旧参数 `market_open_hour/minute`、`entry_blackout_minutes`、`last_entry_hour/minute`。
+   - 新增 `entry_start_hour=9, entry_start_minute=45` 和 `entry_end_hour=15, entry_end_minute=30`。
+   - `_in_entry_window()` 简化为直接比较 `start <= bar_time < end`。
+   - 默认窗口 09:45–15:30 ET（避开开盘 15 分钟拍卖和收盘前 30 分钟强平区间）。
+
+3. **保留不变**
+   - EOD 强制平仓 15:55 (`eod_close_hour/minute`) 不变。
+   - EMA50 趋势过滤、Confirmation Bar、RSI Ceiling、ADX 门控、冷却期等全部保留。
+
+### Results
+
+| Metric | Value |
+|--------|-------|
+| Net PnL | *待回测* |
+| Trades | *待回测* |
+
+**预期：** 关闭保本后策略应能持有更久、捕捉更大波段；时间参数化为后续优化（如提前到 10:00 开始入场）提供便利。
+
+---
+
 ## Experiment 004 — Break-Even + RSI Ceiling + Stop Cap
 
 | Field | Detail |
@@ -183,3 +228,4 @@
 | **002** | +$149 | 25 | -$341 | ADX + Cooldown → 扭亏为盈 |
 | **003** | -$214 | 10 | -$384 | Confirmation Bar → 大幅减少交易 |
 | **004** | -$795 | 8 | **-$264** | Break-Even → 最低单笔回撤 |
+| **005** | *TBD* | *TBD* | *TBD* | BE 开关 + 时间滤网参数化 |
