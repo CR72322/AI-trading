@@ -4,6 +4,58 @@
 
 ---
 
+## Experiment 006 — 15m 周期 + 去除 EOD 强平 + Overnight 持仓
+
+| Field | Detail |
+|-------|--------|
+| **Date** | 2026-02-23 |
+| **Files** | `src/utils/alpaca_loader.py`, `src/strategies/volatility_trend.py`, `src/backtest/run_optimization.py` |
+| **Backtest Period** | 2025-12-26 → 2026-02-23 (Alpaca IEX 15m) |
+
+### Hypothesis
+
+在 SOXL 强趋势阶段，EOD 15:55 强制平仓会错失隔夜跳空收益，并放大日内震荡磨损。  
+将周期从 5m 提升到 15m 并允许隔夜持仓，应提升趋势行情中的盈亏比。
+
+### Changes
+
+1. **数据切换到 15m**
+   - `download_alpaca_data()` 默认周期保持为 15m。
+   - 数据文件路径统一为 `data/raw/SOXL_Alpaca_15m.csv`。
+
+2. **策略允许隔夜持仓**
+   - 移除/不再使用 EOD 强制清仓逻辑（15:55）。
+   - 保留开盘前 15 分钟不开新仓过滤：默认 `entry_start=09:45`。
+   - 默认参数更新：
+     - `enable_break_even=False`
+     - `stop_loss_atr_dist=2.0`
+
+3. **优化网格更新（适配 15m）**
+   - 数据读取改为 `SOXL_Alpaca_15m.csv`。
+   - 固定参数：`enable_break_even=False`
+   - 搜索网格（27 组合）：
+     - `ema_period=[20, 30, 40]`
+     - `stop_loss_atr_dist=[2.0, 2.5, 3.0]`
+     - `trailing_stop_atr_dist=[3.5, 4.0, 5.0]`
+
+### Results
+
+| Metric | Value |
+|--------|-------|
+| Data Bars | 1206 |
+| Best Net PnL | **+$1,288.21** |
+| Best Return | **+12.88%** |
+| Best Params | `EMA=20, StopATR=2.0, TrailATR=3.5, EnableBE=False` |
+| Worst Net PnL | +$377.82 |
+| Worst Return | +3.78% |
+
+**观察：**
+- 27 组参数全部为正收益，说明方向性改动（15m + overnight）有效。
+- 最优结果明显高于此前 5m + EOD 模式阶段的表现，策略对趋势行情适配度提升。
+- TrailATR=3.5 在本轮样本中最稳定；TrailATR 过宽（5.0）会降低收益兑现效率。
+
+---
+
 ## Experiment 005 — Break-Even 开关 + 时间滤网参数化
 
 | Field | Detail |
@@ -224,6 +276,7 @@ Experiment 004 的网格寻优（27 组合）发现：
 
 | Version | Net PnL | Trades | Max Loss | Key Improvement |
 |---------|---------|--------|----------|-----------------|
+| **006** | **+$1,288** | N/A | N/A | 15m + Overnight 持仓，显著改善趋势收益 |
 | **001** | -$1,243 | 42 | -$341 | Baseline |
 | **002** | +$149 | 25 | -$341 | ADX + Cooldown → 扭亏为盈 |
 | **003** | -$214 | 10 | -$384 | Confirmation Bar → 大幅减少交易 |

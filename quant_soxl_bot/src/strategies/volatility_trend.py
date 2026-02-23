@@ -85,7 +85,7 @@ class VolatilityTrendStrategy(bt.Strategy):
         sma_period=20,
         # --- Risk / Stops ---
         stop_loss_atr_dist=2.0,
-        enable_break_even=True,
+        enable_break_even=False,
         break_even_atr_dist=1.0,
         trailing_stop_atr_dist=3.5,
         max_stop_loss_pct=0.03,
@@ -266,8 +266,7 @@ class VolatilityTrendStrategy(bt.Strategy):
         """Return True if the current bar falls within the allowed entry window.
 
         Window: [entry_start_hour:entry_start_minute, entry_end_hour:entry_end_minute)
-        Default 09:45–15:30 ET — avoids the first 15 min open auction and
-        the last 30 min before EOD forced close.
+        Default 09:45–15:30 ET — avoids the first 15 min open auction.
         """
         bar_time = self._bar_dt().time()
         start = dt.time(self.p.entry_start_hour, self.p.entry_start_minute)

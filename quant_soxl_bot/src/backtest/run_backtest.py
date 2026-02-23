@@ -2,7 +2,7 @@
 run_backtest.py
 ===============
 Entry-point script for back-testing the VolatilityTrendStrategy on SOXL
-5-minute historical data via Backtrader.
+15-minute historical data via Backtrader.
 
 Usage
 -----
@@ -39,6 +39,12 @@ from src.utils.alpaca_loader import download_alpaca_data
 INITIAL_CASH: float = 10_000.0
 COMMISSION: float = 0.0
 SIZER_PERCENTS: float = 95.0
+BEST_PARAMS_EXP006: dict = dict(
+    ema_period=20,
+    stop_loss_atr_dist=2.0,
+    trailing_stop_atr_dist=3.5,
+    enable_break_even=False,
+)
 
 
 import numpy as np
@@ -187,8 +193,8 @@ def main() -> None:
     cerebro = bt.Cerebro()
 
     # 2. Data — fetch from Alpaca (cached to CSV after first download) ----
-    print("Loading SOXL 5-min data via Alpaca …")
-    df = download_alpaca_data("SOXL", timeframe_minutes=5, days=60)
+    print("Loading SOXL 15-min data via Alpaca …")
+    df = download_alpaca_data("SOXL", timeframe_minutes=15, days=60)
     print(f"  Rows loaded: {len(df)}  |  "
           f"Range: {df.index.min()} → {df.index.max()}")
 
@@ -202,10 +208,11 @@ def main() -> None:
         volume="Volume",
         openinterest=-1,     # not available
     )
-    cerebro.adddata(data_feed, name="SOXL_5m")
+    cerebro.adddata(data_feed, name="SOXL_15m")
 
     # 3. Strategy ---------------------------------------------------------
-    cerebro.addstrategy(VolatilityTrendStrategy)
+    cerebro.addstrategy(VolatilityTrendStrategy, **BEST_PARAMS_EXP006)
+    print("Using Exp-006 best params:", BEST_PARAMS_EXP006)
 
     # 4. Broker settings --------------------------------------------------
     cerebro.broker.setcash(INITIAL_CASH)

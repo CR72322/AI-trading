@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import backtrader as bt
+import pandas as pd
 
 # ---------------------------------------------------------------------------
 # 确保 src.* 的 import 在任何工作目录下都能正常运行
@@ -36,7 +37,6 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.strategies.volatility_trend import VolatilityTrendStrategy
-from src.utils.alpaca_loader import download_alpaca_data
 
 # ---------------------------------------------------------------------------
 # 回测基础配置（与 run_backtest.py 保持一致）
@@ -46,23 +46,22 @@ COMMISSION: float = 0.0
 SIZER_PERCENTS: float = 95.0
 
 # ---------------------------------------------------------------------------
-# 固定参数（基于上轮搜索结论锁定，节省算力）
+# 固定参数（Exp-006: 关闭 Break-Even，允许纯 Hard+Trail 风控）
 # ---------------------------------------------------------------------------
 FIXED_PARAMS: dict = dict(
-    ema_period=40,
-    trailing_stop_atr_dist=3.5,
+    enable_break_even=False,
 )
+
+DATA_CSV: Path = _PROJECT_ROOT / "data" / "raw" / "SOXL_Alpaca_15m.csv"
 
 # ---------------------------------------------------------------------------
 # 参数搜索网格
 # ---------------------------------------------------------------------------
-# range() 不支持浮点步长，因此用列表显式声明候选值。
-# 总组合数 = 3 × 3 × 2 × 3 = 54
+# 总组合数 = 3 × 3 × 3 = 27
 PARAM_GRID: dict = dict(
-    stop_loss_atr_dist=[1.5, 2.0, 2.5],
-    break_even_atr_dist=[1.5, 2.0, 3.0],
-    enable_break_even=[True, False],
-    rsi_ceiling=[70, 75, 80],
+    ema_period=[20, 30, 40],
+    stop_loss_atr_dist=[2.0, 2.5, 3.0],
+    trailing_stop_atr_dist=[3.5, 4.0, 5.0],
 )
 
 
@@ -71,13 +70,18 @@ def main() -> None:
     # 1. 加载数据（只下载一次，所有参数组合共享同一份 DataFrame）
     # ==================================================================
     print("=" * 72)
-    print("  SOXL VolatilityTrendStrategy — 参数网格寻优 (Exp-005)")
+    print("  SOXL VolatilityTrendStrategy — 参数网格寻优 (Exp-006)")
     print("=" * 72)
-    print(f"  固定参数: EMA={FIXED_PARAMS['ema_period']}, "
-          f"TrailATR={FIXED_PARAMS['trailing_stop_atr_dist']}")
+    print(f"  固定参数: EnableBE={FIXED_PARAMS['enable_break_even']}")
 
-    print("\n[1/4] 加载 SOXL 5-min 数据 …")
-    df = download_alpaca_data("SOXL", timeframe_minutes=5, days=60)
+    print("\n[1/4] 加载 SOXL 15-min 数据 …")
+    if not DATA_CSV.exists():
+        raise FileNotFoundError(
+            f"缺少数据文件: {DATA_CSV}\n"
+            "请先运行 src.utils.alpaca_loader 下载 15m 数据。"
+        )
+    df = pd.read_csv(DATA_CSV, parse_dates=["Datetime"], index_col="Datetime")
+    df = df.sort_index()
     print(f"      {len(df)} bars  |  {df.index.min()} → {df.index.max()}")
 
     # ==================================================================
@@ -95,7 +99,7 @@ def main() -> None:
         volume="Volume",
         openinterest=-1,
     )
-    cerebro.adddata(data_feed, name="SOXL_5m")
+    cerebro.adddata(data_feed, name="SOXL_15m")
 
     # ==================================================================
     # 3. 添加优化策略
@@ -141,10 +145,9 @@ def main() -> None:
 
         records.append(
             dict(
-                enable_be=strat.p.enable_break_even,
-                be_dist=strat.p.break_even_atr_dist,
+                ema_period=strat.p.ema_period,
                 stop_atr=strat.p.stop_loss_atr_dist,
-                rsi_ceil=strat.p.rsi_ceiling,
+                trail_atr=strat.p.trailing_stop_atr_dist,
                 final_value=final_value,
                 profit=profit,
                 return_pct=profit / INITIAL_CASH * 100,
@@ -159,10 +162,9 @@ def main() -> None:
     print(f"\n[4/4] Top 10 参数组合（共 {len(records)} 组）")
     hdr = (
         f"{'Rank':<5}"
-        f"{'EnableBE':>10}"
-        f"{'BEDist':>8}"
+        f"{'EMA':>8}"
         f"{'StopATR':>9}"
-        f"{'RSICeil':>9}"
+        f"{'TrailATR':>10}"
         f"{'Final($)':>12}"
         f"{'Profit($)':>12}"
         f"{'Return(%)':>11}"
@@ -172,14 +174,11 @@ def main() -> None:
     print("-" * len(hdr))
 
     for i, rec in enumerate(records[:10], start=1):
-        be_label = "ON" if rec["enable_be"] else "OFF"
-        be_dist_str = f"{rec['be_dist']:.1f}" if rec["enable_be"] else "  —"
         print(
             f"{i:<5}"
-            f"{be_label:>10}"
-            f"{be_dist_str:>8}"
+            f"{rec['ema_period']:>8}"
             f"{rec['stop_atr']:>9.1f}"
-            f"{rec['rsi_ceil']:>9}"
+            f"{rec['trail_atr']:>10.1f}"
             f"{rec['final_value']:>12,.2f}"
             f"{rec['profit']:>12,.2f}"
             f"{rec['return_pct']:>10.2f}%"
@@ -188,18 +187,16 @@ def main() -> None:
     print("-" * len(hdr))
 
     worst = records[-1]
-    w_be = "ON" if worst["enable_be"] else "OFF"
     print(
-        f"\n  最差: EnableBE={w_be}, BEDist={worst['be_dist']:.1f}, "
-        f"StopATR={worst['stop_atr']:.1f}, RSICeil={worst['rsi_ceil']} "
+        f"\n  最差: EMA={worst['ema_period']}, StopATR={worst['stop_atr']:.1f}, "
+        f"TrailATR={worst['trail_atr']:.1f} "
         f"→ {worst['profit']:+,.2f} ({worst['return_pct']:+.2f}%)"
     )
 
     best = records[0]
-    b_be = "ON" if best["enable_be"] else "OFF"
     print(
-        f"  最优: EnableBE={b_be}, BEDist={best['be_dist']:.1f}, "
-        f"StopATR={best['stop_atr']:.1f}, RSICeil={best['rsi_ceil']} "
+        f"  最优: EMA={best['ema_period']}, StopATR={best['stop_atr']:.1f}, "
+        f"TrailATR={best['trail_atr']:.1f} "
         f"→ {best['profit']:+,.2f} ({best['return_pct']:+.2f}%)"
     )
     print()

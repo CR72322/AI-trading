@@ -37,7 +37,7 @@ load_dotenv(_PROJECT_ROOT / ".env")
 from alpaca.data.historical.stock import StockHistoricalDataClient  # noqa: E402
 from alpaca.data.requests import StockBarsRequest                   # noqa: E402
 from alpaca.data.enums import DataFeed                              # noqa: E402
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit          # noqa: E402
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit           # noqa: E402
 
 
 def _get_alpaca_client() -> StockHistoricalDataClient:
