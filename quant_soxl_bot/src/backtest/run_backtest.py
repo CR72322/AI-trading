@@ -13,6 +13,8 @@ Usage
 from __future__ import annotations
 
 import argparse
+import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -182,7 +184,26 @@ def _parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="Save chart to file instead of showing GUI (e.g. output/backtest.png).",
     )
+    parser.add_argument(
+        "--no-open-plot",
+        action="store_true",
+        help="Do not auto-open the saved chart file.",
+    )
     return parser.parse_args()
+
+
+def _open_plot_file(save_file: Path) -> None:
+    """Best-effort auto-open for saved chart file."""
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.run(["open", str(save_file)], check=False)
+        elif system == "Linux":
+            subprocess.run(["xdg-open", str(save_file)], check=False)
+        elif system == "Windows":
+            subprocess.run(["cmd", "/c", "start", "", str(save_file)], check=False)
+    except Exception as exc:
+        print(f"Warning: failed to open chart automatically: {exc}")
 
 
 def main() -> None:
@@ -194,7 +215,7 @@ def main() -> None:
 
     # 2. Data — fetch from Alpaca (cached to CSV after first download) ----
     print("Loading SOXL 15-min data via Alpaca …")
-    df = download_alpaca_data("SOXL", timeframe_minutes=15, days=60)
+    df = download_alpaca_data("SOXL", timeframe_minutes=15, days=180)
     print(f"  Rows loaded: {len(df)}  |  "
           f"Range: {df.index.min()} → {df.index.max()}")
 
@@ -238,6 +259,8 @@ def main() -> None:
         save_file.parent.mkdir(parents=True, exist_ok=True)
 
         _save_backtest_chart(strat, df, INITIAL_CASH, save_file)
+        if not args.no_open_plot:
+            _open_plot_file(save_file)
 
 
 if __name__ == "__main__":

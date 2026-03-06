@@ -4,6 +4,55 @@
 
 ---
 
+## Experiment 007 — 180天样本扩展 + 交易明细报表
+
+| Field | Detail |
+|-------|--------|
+| **Date** | 2026-03-07 |
+| **Files** | `src/utils/alpaca_loader.py`, `src/strategies/volatility_trend.py`, `src/backtest/run_backtest.py` |
+| **Backtest Period** | 2025-09-08 → 2026-03-06 (Alpaca IEX 15m) |
+
+### Hypothesis
+
+Exp-006 已验证 15m 隔夜策略在趋势段有效，但回测透明度和样本长度不足。  
+引入逐笔交易报表并将样本扩展到 180 天，可提升策略可解释性与稳健性评估质量。
+
+### Changes
+
+1. **数据样本扩展到 180 天**
+   - `download_alpaca_data()` 默认 `days` 从 60 调整为 180。
+   - timeframe 优先采用 `TimeFrame.Minute * 15`，并保留旧版 SDK 兼容 fallback。
+   - 重新下载并覆盖 `data/raw/SOXL_Alpaca_15m.csv`。
+
+2. **交易日志系统（Trade Logging）**
+   - 策略初始化新增 `self.trade_log = []`。
+   - `notify_trade()` 在 `trade.isclosed` 时记录：
+     - 开仓/平仓时间、方向、开平仓价、净利润、收益率。
+   - `stop()` 在策略结束时输出交易表（优先 `to_markdown()`，fallback `to_string()`）。
+
+3. **单次回测脚本联动**
+   - `run_backtest.py` 改为读取 180 天 15m 数据。
+   - 保留终端交易表输出。
+   - 保存图像后默认尝试自动打开（支持 `--no-open-plot` 关闭）。
+
+### Results
+
+| Metric | Value |
+|--------|-------|
+| Data Bars | 4068 |
+| Trades | 10 |
+| Final Portfolio Value | **$12,895.86** |
+| Net PnL | **+$2,895.86** |
+| Return | **+28.96%** |
+| Max Single Loss | -$456.53 |
+
+**观察：**
+- 在更长样本下策略仍保持正收益，说明 Exp-006 方向具备可迁移性。
+- 交易日志已能逐笔审计开平仓与收益率，回测透明度显著提升。
+- 长样本中仍出现大额单笔回撤（如 -$456.53），下一步可评估仓位或止损上限约束。
+
+---
+
 ## Experiment 006 — 15m 周期 + 去除 EOD 强平 + Overnight 持仓
 
 | Field | Detail |
@@ -276,6 +325,7 @@ Experiment 004 的网格寻优（27 组合）发现：
 
 | Version | Net PnL | Trades | Max Loss | Key Improvement |
 |---------|---------|--------|----------|-----------------|
+| **007** | **+$2,896** | 10 | -$457 | 180天样本 + 逐笔交易日志，透明度与稳健性提升 |
 | **006** | **+$1,288** | N/A | N/A | 15m + Overnight 持仓，显著改善趋势收益 |
 | **001** | -$1,243 | 42 | -$341 | Baseline |
 | **002** | +$149 | 25 | -$341 | ADX + Cooldown → 扭亏为盈 |

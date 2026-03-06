@@ -70,7 +70,7 @@ def download_alpaca_data(
     symbol: str = "SOXL",
     *,
     timeframe_minutes: int = 15,
-    days: int = 60,
+    days: int = 180,
     cache: bool = True,
 ) -> pd.DataFrame:
     """Download intraday bar data from Alpaca and return a Backtrader-ready DF.
@@ -82,7 +82,7 @@ def download_alpaca_data(
     timeframe_minutes : int
         Bar aggregation in minutes (default ``15``).
     days : int
-        How many calendar days of history to request (default ``60``).
+        How many calendar days of history to request (default ``180``).
     cache : bool
         If True, save to / read from ``data/raw/<SYMBOL>_Alpaca_<TF>m.csv``
         to avoid redundant API calls (e.g. ``SOXL_Alpaca_15m.csv``).
@@ -132,9 +132,16 @@ def download_alpaca_data(
     end_dt = datetime.utcnow()
     start_dt = end_dt - timedelta(days=days)
 
+    # Prefer TimeFrame.Minute * N per Exp-007. Fallback keeps compatibility
+    # with older alpaca-py versions that do not support TimeFrame multiplication.
+    try:
+        timeframe = TimeFrame.Minute * timeframe_minutes
+    except Exception:
+        timeframe = TimeFrame(amount=timeframe_minutes, unit=TimeFrameUnit.Minute)
+
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
-        timeframe=TimeFrame(amount=timeframe_minutes, unit=TimeFrameUnit.Minute),
+        timeframe=timeframe,
         start=start_dt,
         end=end_dt,
         # 使用 IEX 数据源 — 免费账户可用，且与 STRATEGY_SPECS.md 一致。

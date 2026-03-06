@@ -132,11 +132,14 @@ class VolatilityTrendStrategy(bt.Strategy):
         # Order / position tracking
         self.order: Optional[bt.Order] = None
         self.entry_price: float = 0.0
+        self.entry_size: float = 0.0
         self.entry_atr: float = 0.0           # ATR at the moment of entry (for stop)
         self.hard_stop_price: float = 0.0     # computed at entry, may be raised to BE
         self.highest_price: float = 0.0
         self.trailing_stop_level: float = 0.0
         self.breakeven_triggered: bool = False  # True once stop has been moved to BE
+        self.last_exit_price: Optional[float] = None
+        self.trade_log: list[dict] = []
 
         # Confirmation bar — delay entry by one bar to filter whipsaws
         self.waiting_confirmation: bool = False
@@ -184,6 +187,7 @@ class VolatilityTrendStrategy(bt.Strategy):
         if order.status == order.Completed:
             if order.isbuy():
                 self.entry_price = order.executed.price
+                self.entry_size = abs(order.executed.size)
                 self.entry_atr = self.atr[0]
                 atr_dist = self.p.stop_loss_atr_dist * self.entry_atr
                 pct_cap = self.entry_price * self.p.max_stop_loss_pct
@@ -204,6 +208,7 @@ class VolatilityTrendStrategy(bt.Strategy):
             elif order.issell():
                 # Reset cooldown counter — the wait starts NOW.
                 self.bars_since_exit = 0
+                self.last_exit_price = order.executed.price
                 self.log(
                     f"SELL EXECUTED | Price: {order.executed.price:.2f}, "
                     f"Size: {order.executed.size:.0f}, "
@@ -236,6 +241,30 @@ class VolatilityTrendStrategy(bt.Strategy):
         pnl = trade.pnlcomm
         self.daily_pnl += pnl
 
+        direction = "Long" if trade.long else "Short"
+        entry_price = float(trade.price)
+        close_price = (
+            float(self.last_exit_price)
+            if self.last_exit_price is not None
+            else float(trade.price)
+        )
+        # Backtrader marks closed trades with size=0; use cached entry size.
+        position_size = abs(self.entry_size) if self.entry_size else 0.0
+        notional = abs(entry_price * position_size)
+        return_pct = (pnl / notional) if notional else 0.0
+
+        self.trade_log.append(
+            {
+                "open_time": bt.num2date(trade.dtopen),
+                "close_time": bt.num2date(trade.dtclose),
+                "direction": direction,
+                "entry_price": round(entry_price, 4),
+                "exit_price": round(close_price, 4),
+                "pnl_net": round(float(pnl), 4),
+                "return_pct": round(return_pct * 100.0, 4),
+            }
+        )
+
         if pnl < 0:
             self.consec_losses += 1
             self.log(
@@ -245,6 +274,20 @@ class VolatilityTrendStrategy(bt.Strategy):
         else:
             self.consec_losses = 0
             self.log(f"TRADE CLOSED (WIN)  | PnL: {pnl:.2f}")
+
+    def stop(self) -> None:
+        """Print a trade report table at strategy end."""
+        if not self.trade_log:
+            return
+
+        import pandas as pd
+
+        df = pd.DataFrame(self.trade_log)
+        print("\n=== Trade Log Report ===")
+        try:
+            print(df.to_markdown(index=False))
+        except Exception:
+            print(df.to_string(index=False))
 
     # ------------------------------------------------------------------
     # Helpers — time filters
